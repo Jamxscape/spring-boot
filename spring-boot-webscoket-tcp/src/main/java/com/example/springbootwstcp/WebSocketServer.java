@@ -8,7 +8,6 @@ import javax.websocket.*;
 import javax.websocket.server.PathParam;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
-import java.math.BigDecimal;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -35,20 +34,22 @@ public class WebSocketServer {
     /**
      * webSocket会话对象
      */
-    private Session session;
+//    private Session session;
 
     private static final ConcurrentHashMap<String, Session> sessionMap = new ConcurrentHashMap<>();
 
     private String uid;
 
+    // 要转发的消息
+    private String sharedMessage;
+
     @OnOpen
     public void onOpen(@PathParam("uid") String uid, Session session) {
-        this.session = session;
         this.uid = uid;
+        log.info("当前连接{}<<<<<<<<<<<<<<<", session);
         sessionMap.put(uid, session);
         try{
-            this.sendMessage(this.uid + " hello connection is success");
-
+            this.sendMessage(this.uid + " hello connection is success", session);
         }catch (Exception e){
             log.error("连接失败");
             e.printStackTrace();
@@ -78,7 +79,8 @@ public class WebSocketServer {
      * @Description 关闭连接
      */
     @OnClose
-    public void onClose() {
+    public void onClose(@PathParam("uid") String uid, Session session) {
+        sessionMap.remove(uid, session);
         log.info("有一连接关闭！当前在线用户数为");
     }
 
@@ -91,9 +93,10 @@ public class WebSocketServer {
     /**
      * 服务器推送消息至客户端
      */
-    public void sendMessage(String message) throws Exception {
+    public void sendMessage(String message, Session session) throws Exception {
         try {
-            this.session.getBasicRemote().sendText(message);
+            log.info("发送的消息{} 消息内容{}", session, message);
+            session.getBasicRemote().sendText(message);
         }catch (IOException e){
             log.error("消息异常 {}", e.getMessage());
         }
@@ -106,11 +109,11 @@ public class WebSocketServer {
         for (Map.Entry<String, Session> entry : sessionMap.entrySet()) {
             String userIdWithSession = entry.getKey().split("\\.")[0];
             Session session = entry.getValue();
-            if (!userIdWithSession.equals(uid)) {
-                if (session != null && session.isOpen()) {
-                    this.sendMessage(message);
-                }
-            }
+//            if (!userIdWithSession.equals(uid)) {
+//                if (session != null && session.isOpen()) {
+                    this.sendMessage(message, session);
+//                }
+//            }
         }
     }
 
@@ -161,4 +164,22 @@ public class WebSocketServer {
         timer.schedule(task, 0 ,1000);
     }
 
+    void transmitMessage(){
+        TimerTask task2 = new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    if(sharedMessage != "" && sharedMessage != null){
+//                        sendMessage(sharedMessage);
+                        sharedMessage = "";
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        Timer timer = new Timer();
+        // 从现在开始每间隔 1000 ms 计划执行一个任务（规律性重复执行调度 TimerTask）
+        timer.schedule(task2, 0 ,1000);
+    }
 }
