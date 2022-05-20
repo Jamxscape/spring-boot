@@ -1,2 +1,187 @@
-package com.example.springbootwstcp;public class WebSocketOne2One {
+package com.example.springbootwstcp;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import org.apache.commons.lang3.StringUtils;
+
+import javax.websocket.*;
+import javax.websocket.server.PathParam;
+import javax.websocket.server.ServerEndpoint;
+import java.io.IOException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/// 将单用户的信息转发给另一个用户
+@Slf4j
+@ServerEndpoint("/one2one/{uid}")
+@Component
+public class WebSocketOne2One {
+    /**
+     * 实时连接数量
+     */
+    private static AtomicInteger onlineCount = new AtomicInteger(0);
+
+    /**
+     * 会话容器
+     */
+    public static Map<Long,WebSocketServer> webSocketMap = new ConcurrentHashMap<>(128);
+
+    /**
+     * webSocket会话对象
+     */
+//    private Session session;
+
+    private static final ConcurrentHashMap<String, Session> sessionMap = new ConcurrentHashMap<>();
+
+    private String uid;
+
+    // 要转发的消息
+    private String sharedMessage;
+
+    @OnOpen
+    public void onOpen(@PathParam("uid") String uid, Session session) {
+        this.uid = uid;
+        log.info("当前连接{}<<<<<<<<<<<<<<<", session);
+        sessionMap.put(uid, session);
+        try{
+            this.sendMessage(this.uid + " hello connection is success", session);
+        }catch (Exception e){
+            log.error("连接失败");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * @Description 接收客户端消息
+     * @param message 客户端传来的的消息
+     * @param session 会话对象
+     */
+    @OnMessage
+    public void onMessage(@PathParam("uid") String uid, String message, Session session) {
+        if (StringUtils.isNotBlank(message)){
+            try {
+                this.sendMessageByUid(uid, message);
+                log.info("收到来自:{} 的消息:{}", uid, message);
+            }catch (Exception e){
+                e.printStackTrace();
+            }
+        }else{
+            log.info("消息不能为空");
+        }
+    }
+
+    /**
+     * @Description 关闭连接
+     */
+    @OnClose
+    public void onClose(@PathParam("uid") String uid, Session session) {
+        sessionMap.remove(uid, session);
+        log.info("有一连接关闭！当前在线用户数为");
+    }
+
+    @OnError
+    public void onError(Session session, Throwable error) {
+        log.error("socket发生错误");
+        error.printStackTrace();
+    }
+
+    /**
+     * 服务器推送消息至客户端
+     */
+    public void sendMessage(String message, Session session) throws Exception {
+        try {
+            log.info("发送的消息{} 消息内容{}", session, message);
+            session.getBasicRemote().sendText(message);
+        }catch (IOException e){
+            log.error("消息异常 {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 向指定用户发送消息
+     */
+    public void sendMessageByUid(String uid, String message) throws Exception {
+        for (Map.Entry<String, Session> entry : sessionMap.entrySet()) {
+            String userIdWithSession = entry.getKey().split("\\.")[0];
+            Session session = entry.getValue();
+//            if (!userIdWithSession.equals(uid)) {
+//                if (session != null && session.isOpen()) {
+            this.sendMessage(message, session);
+//                }
+//            }
+        }
+    }
+
+    /**
+     * 发送群消息
+     */
+
+    /**
+     * 获取当前在线用户数
+     */
+    public static int getOnlineCount() {
+        return onlineCount.get();
+    }
+
+    /**
+     * 在线用户数加1
+     */
+    public static void addOnlineCount() {
+        onlineCount.incrementAndGet();
+    }
+
+    /**
+     * 在线用户数减1
+     */
+    public static void subOnlineCount() {
+        onlineCount.decrementAndGet();
+    }
+
+    /**
+     * 定时消息
+     */
+    void sendScheduleMessage(){
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                // 重写 run() 方法，返回系统时间
+                try {
+                    DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    String time = df.format(new Date());
+                    sendMessageByUid(uid, time);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        Timer timer = new Timer();
+        // 从现在开始每间隔 1000 ms 计划执行一个任务（规律性重复执行调度 TimerTask）
+        timer.schedule(task, 0 ,1000);
+    }
+
+    void transmitMessage(){
+        TimerTask task2 = new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    if(sharedMessage != "" && sharedMessage != null){
+//                        sendMessage(sharedMessage);
+                        sharedMessage = "";
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        Timer timer = new Timer();
+        // 从现在开始每间隔 1000 ms 计划执行一个任务（规律性重复执行调度 TimerTask）
+        timer.schedule(task2, 0 ,1000);
+    }
 }
+
